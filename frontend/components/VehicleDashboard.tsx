@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { Search, MapPin, Gauge, ExternalLink, Car, Menu, ChevronRight, ChevronLeft } from 'lucide-react';
 
 interface Vehicle {
     id: string;
@@ -17,173 +18,365 @@ interface Vehicle {
     posted_date?: string;
 }
 
-export default function VehicleDashboard() {
-    const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [searching, setSearching] = useState(false);
-    const [useStaging, setUseStaging] = useState(false);
+// Reuseable Card Component
+const VehicleCard = ({ vehicle }: { vehicle: Vehicle }) => (
+    <div className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all duration-300 overflow-hidden flex flex-col h-full min-w-[280px] md:min-w-[320px]">
+        {/* Image */}
+        <div className="relative h-48 w-full bg-gray-100 overflow-hidden">
+            {vehicle.image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                    src={vehicle.image_url}
+                    alt={vehicle.title}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-in-out"
+                />
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-gray-400 bg-gray-50">
+                    <Car className="h-10 w-10 mb-2 opacity-50" />
+                    <span className="text-xs font-medium">No Image</span>
+                </div>
+            )}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent h-24"></div>
+        </div>
 
-    // Initial fetch (load all cars)
-    useEffect(() => {
-        handleSearch('');
-    }, []);
+        {/* Content */}
+        <div className="p-4 flex-1 flex flex-col">
+            <h3 className="text-gray-900 font-bold text-lg leading-tight truncate mb-1" title={vehicle.title}>
+                {vehicle.title}
+            </h3>
+            <div className="text-emerald-700 font-extrabold text-xl mb-3">
+                ${vehicle.price.toLocaleString()}
+            </div>
 
-    async function handleSearch(queryOverride?: string) {
-        setSearching(true);
-        // If called with an argument, use it; otherwise use state.
-        const queryToUse = queryOverride !== undefined ? queryOverride : searchQuery;
+            <div className="space-y-1.5 mb-4 flex-1 border-t border-gray-100 pt-3">
+                <div className="flex items-center text-sm font-medium text-gray-600">
+                    <Gauge className="h-4 w-4 mr-2 text-gray-400" />
+                    {vehicle.mileage !== 'N/A' ? vehicle.mileage : 'Mileage N/A'}
+                </div>
+                <div className="flex items-center text-sm font-medium text-gray-600">
+                    <MapPin className="h-4 w-4 mr-2 text-gray-400" />
+                    {vehicle.location}
+                </div>
+            </div>
 
-        try {
-            const response = await fetch('/api/search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: queryToUse, useStaging }),
-            });
-            const result = await response.json();
+            <div className="flex items-center justify-between mt-auto pt-2">
+                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                    Source: {vehicle.source}
+                </span>
+                <a
+                    href={vehicle.marketplace_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center text-blue-600 hover:text-blue-800 text-sm font-bold transition-colors"
+                >
+                    View <ChevronRight className="h-4 w-4 ml-0.5" />
+                </a>
+            </div>
+        </div>
+    </div>
+);
 
-            if (response.ok) {
-                setVehicles(result.data || []);
-            } else {
-                console.error("Search failed:", result.error);
-                alert('Search failed. See console for details.');
-            }
-        } catch (err) {
-            console.error('Search error:', err);
-            alert('An error occurred during search.');
-        } finally {
-            setSearching(false);
-            setLoading(false); // Ensure main loading state is off after first run
-        }
-    }
+// Horizontal Scrolling Row
+const CarRow = ({ title, vehicles, loading, onSeeAll }: { title: string, vehicles: Vehicle[], loading: boolean, onSeeAll: () => void }) => {
+    const scrollRef = useRef<HTMLDivElement>(null);
 
-    // Trigger search on Enter key
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            handleSearch();
+    const scroll = (direction: 'left' | 'right') => {
+        if (scrollRef.current) {
+            const { current } = scrollRef;
+            const scrollAmount = 350;
+            current.scrollBy({ left: direction === 'left' ? -scrollAmount : scrollAmount, behavior: 'smooth' });
         }
     };
 
+    if (loading) return (
+        <div className="mb-12">
+            <div className="h-8 w-48 bg-gray-200 rounded animate-pulse mb-6"></div>
+            <div className="flex gap-6 overflow-hidden">
+                {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="min-w-[300px] h-[350px] bg-gray-100 rounded-xl animate-pulse"></div>
+                ))}
+            </div>
+        </div>
+    );
+
+    if (vehicles.length === 0) return null;
+
     return (
-        <div className="bg-gray-50 min-h-screen p-6 md:p-12">
-            <div className="max-w-7xl mx-auto">
-                {/* Header / Search Section */}
-                <div className="mb-12 text-center">
-                    <h1 className="text-4xl font-extrabold text-gray-900 mb-2">Find Your Perfect Ride</h1>
-                    <p className="text-gray-500 mb-6">Search through our extensive live inventory</p>
+        <div className="mb-12 relative group/row">
+            <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 mb-4">
+                <h2 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h2>
+                <button className="text-blue-600 text-sm font-bold hover:underline flex items-center" onClick={onSeeAll}>
+                    See All <ChevronRight className="h-4 w-4" />
+                </button>
+            </div>
 
-                    {/* Test Mode Toggle */}
-                    <div className="flex justify-center mb-4">
-                        <label className="inline-flex items-center cursor-pointer">
-                            <input
-                                type="checkbox"
-                                checked={useStaging}
-                                onChange={(e) => setUseStaging(e.target.checked)}
-                                className="sr-only peer"
-                            />
-                            <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-                            <span className="ms-3 text-sm font-medium text-gray-700">Test Mode (Staging Data)</span>
-                        </label>
-                    </div>
+            <div className="relative">
+                {/* Scroll Buttons */}
+                <button
+                    onClick={() => scroll('left')}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-white/90 backdrop-blur shadow-lg rounded-full p-2 text-gray-800 opacity-0 group-hover/row:opacity-100 transition-opacity hover:bg-white disabled:opacity-0"
+                >
+                    <ChevronRight className="h-6 w-6 rotate-180" />
+                </button>
+                <button
+                    onClick={() => scroll('right')}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 z-10 bg-white/90 backdrop-blur shadow-lg rounded-full p-2 text-gray-800 opacity-0 group-hover/row:opacity-100 transition-opacity hover:bg-white"
+                >
+                    <ChevronRight className="h-6 w-6" />
+                </button>
 
-                    <div className="max-w-2xl mx-auto relative flex items-center">
-                        <input
-                            type="text"
-                            placeholder="Search cars... Honda Civic, Isuzu, etc."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            className="w-full bg-white border border-gray-200 rounded-lg py-4 pl-6 pr-32 shadow-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent text-lg"
-                        />
-                        <button
-                            onClick={() => handleSearch()}
-                            disabled={searching}
-                            className={`absolute right-2 text-white px-6 py-2.5 rounded-md font-bold text-sm tracking-wide disabled:bg-gray-400 disabled:cursor-not-allowed transition-all ${useStaging
-                                    ? 'bg-amber-600 hover:bg-amber-700'
-                                    : 'bg-black hover:bg-slate-800'
-                                }`}
-                        >
-                            {searching ? 'SEARCHING...' : 'SEARCH'}
-                        </button>
+                {/* Container */}
+                <div
+                    ref={scrollRef}
+                    className="flex overflow-x-auto gap-6 px-4 sm:px-6 lg:px-8 pb-8 -mx-4 sm:-mx-6 lg:-mx-8 scrollbar-hide snap-x"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
+                    {vehicles.map(vehicle => (
+                        <div key={vehicle.id} className="snap-start">
+                            <VehicleCard vehicle={vehicle} />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default function VehicleDashboard() {
+    // State for Categories
+    const [recentCars, setRecentCars] = useState<Vehicle[]>([]);
+    const [cheapCars, setCheapCars] = useState<Vehicle[]>([]);
+    const [hondaCars, setHondaCars] = useState<Vehicle[]>([]);
+
+    // State for Search & Views
+    const [browseCars, setBrowseCars] = useState<Vehicle[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // View State: 'home' | 'search' | 'category'
+    const [activeView, setActiveView] = useState<'home' | 'search' | 'category'>('home');
+    const [viewTitle, setViewTitle] = useState('Browse Inventory');
+
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchLoading, setSearchLoading] = useState(false);
+
+    // Initial Load - Fetch Categories
+    useEffect(() => {
+        const fetchCategories = async () => {
+            setIsLoading(true);
+            try {
+                // Parallel fetching
+                const [recent, cheap, honda, all] = await Promise.all([
+                    fetch('/api/search', {
+                        method: 'POST',
+                        body: JSON.stringify({ limit: 10 }) // Recent
+                    }).then(r => r.json()),
+                    fetch('/api/search', {
+                        method: 'POST',
+                        body: JSON.stringify({ maxPrice: 15000, limit: 10 }) // Cheap
+                    }).then(r => r.json()),
+                    fetch('/api/search', {
+                        method: 'POST',
+                        body: JSON.stringify({ make: 'Honda', limit: 10 }) // Honda
+                    }).then(r => r.json()),
+                    fetch('/api/search', {
+                        method: 'POST',
+                        body: JSON.stringify({ limit: 20 }) // Browse All (First 20)
+                    }).then(r => r.json())
+                ]);
+
+                setRecentCars(recent.data || []);
+                setCheapCars(cheap.data || []);
+                setHondaCars(honda.data || []);
+                setBrowseCars(all.data || []);
+
+            } catch (error) {
+                console.error("Error fetching dashboard data:", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchCategories();
+    }, []);
+
+    // Handle Search
+    const handleSearch = async (override?: string) => {
+        const query = override !== undefined ? override : searchQuery;
+
+        if (!query.trim()) {
+            setActiveView('home');
+            return;
+        }
+
+        setActiveView('search');
+        setViewTitle(`Search Results for "${query}"`);
+        setSearchLoading(true);
+
+        try {
+            const res = await fetch('/api/search', {
+                method: 'POST',
+                body: JSON.stringify({ query: query })
+            });
+            const data = await res.json();
+            setBrowseCars(data.data || []);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setSearchLoading(false);
+        }
+    };
+
+    // Handle "See All" Click
+    const handleSeeAll = async (type: string, value: any, title: string) => {
+        setActiveView('category');
+        setViewTitle(title);
+        setSearchLoading(true);
+        // Clear search query when entering a category to avoid confusion
+        setSearchQuery('');
+
+        let payload = {};
+        if (type === 'sort' && value === 'newest') payload = { limit: 50 }; // Just fetch more recent
+        if (type === 'price') payload = { maxPrice: value, limit: 50 };
+        if (type === 'make') payload = { make: value, limit: 50 };
+
+        try {
+            const res = await fetch('/api/search', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            setBrowseCars(data.data || []);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setSearchLoading(false);
+        }
+    };
+
+    const handleBackToHome = () => {
+        setActiveView('home');
+        setSearchQuery('');
+        setBrowseCars([]); // Optional: clear or keep cache
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') handleSearch();
+    };
+
+    return (
+        <div className="bg-slate-50 min-h-screen font-sans selection:bg-blue-200">
+            {/* Navbar */}
+            <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="flex justify-between h-16 items-center">
+                        <div className="flex items-center cursor-pointer" onClick={handleBackToHome}>
+                            <Car className="h-7 w-7 text-blue-700 mr-2" />
+                            <span className="text-xl font-extrabold text-slate-900 tracking-tight">CarShopper</span>
+                        </div>
+                        <div className="hidden md:flex space-x-8">
+                            <a className="text-sm font-bold text-gray-700 hover:text-blue-700 cursor-pointer">Buy</a>
+                            <a className="text-sm font-bold text-gray-700 hover:text-blue-700 cursor-pointer">Sell</a>
+                            <a className="text-sm font-bold text-gray-700 hover:text-blue-700 cursor-pointer">Reviews</a>
+                        </div>
+                        <Menu className="md:hidden h-6 w-6 text-gray-700" />
                     </div>
                 </div>
+            </nav>
 
-                {/* Content Section */}
-                {loading ? (
-                    <div className="text-center py-20">
-                        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-black mx-auto mb-4"></div>
-                        <p className="text-gray-400 font-medium">Loading inventory...</p>
-                    </div>
-                ) : vehicles.length === 0 ? (
-                    <div className="text-center py-20 bg-white rounded-xl shadow-sm border border-gray-100">
-                        <p className="text-xl text-gray-400 font-medium">No cars found matching "{searchQuery}"</p>
-                        <p className="text-gray-300 mt-2">Try adjusting your keywords.</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-                        {vehicles.map((vehicle) => (
-                            <div
-                                key={vehicle.id}
-                                className="group bg-white border border-gray-100 rounded-xl overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col"
+            {/* Hero */}
+            <div className="bg-gradient-to-r from-slate-900 to-slate-800 pt-16 pb-24 sm:pt-24 sm:pb-32 px-4 relative overflow-hidden">
+                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?ixlib=rb-1.2.1&auto=format&fit=crop&w=1950&q=80')] bg-cover bg-center opacity-20 mix-blend-overlay"></div>
+                <div className="relative max-w-4xl mx-auto text-center z-10">
+                    <h1 className="text-4xl sm:text-6xl font-black text-white mb-6 drop-shadow-sm">
+                        Find the real deal.
+                    </h1>
+                    <div className="relative max-w-2xl mx-auto">
+                        <div className="flex items-center bg-white rounded-lg shadow-2xl p-2 focus-within:ring-4 focus-within:ring-blue-500/30 transition-shadow">
+                            <Search className="h-5 w-5 text-gray-400 ml-3" />
+                            <input
+                                type="text"
+                                className="w-full bg-transparent border-none focus:ring-0 text-lg font-medium text-gray-900 placeholder-gray-400 py-3 px-3"
+                                placeholder="Search by make, model, or keyword..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                            />
+                            <button
+                                onClick={() => handleSearch()}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-md font-bold transition-transform active:scale-95"
                             >
-                                {/* Image Container */}
-                                <div className="relative aspect-video w-full bg-gray-100 overflow-hidden">
-                                    {vehicle.image_url ? (
-                                        // eslint-disable-next-line @next/next/no-img-element
-                                        <img
-                                            src={vehicle.image_url}
-                                            alt={vehicle.title}
-                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                        />
-                                    ) : (
-                                        <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                                            No Image Available
-                                        </div>
-                                    )}
-                                    <div className="absolute top-3 right-3 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        {vehicle.source}
-                                    </div>
-                                </div>
+                                Search
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-                                {/* Details Container */}
-                                <div className="p-5 flex-1 flex flex-col">
-                                    <h3 className="font-medium text-gray-900 text-lg leading-snug line-clamp-2 h-[3.25rem] mb-2" title={vehicle.title}>
-                                        {vehicle.title}
-                                    </h3>
+            {/* Main Content */}
+            <div className="max-w-[1400px] mx-auto py-12">
 
-                                    <div className="flex items-baseline mb-4">
-                                        <span className="text-2xl font-bold text-gray-900">
-                                            ${vehicle.price.toLocaleString()}
-                                        </span>
-                                    </div>
+                {/* View 1: Categorized Rows (Default) */}
+                {activeView === 'home' && (
+                    <div className="space-y-4">
+                        <CarRow
+                            title="Just Arrived"
+                            vehicles={recentCars}
+                            loading={isLoading}
+                            onSeeAll={() => handleSeeAll('sort', 'newest', 'Just Arrived')}
+                        />
+                        <CarRow
+                            title="Best Deals under $15k"
+                            vehicles={cheapCars}
+                            loading={isLoading}
+                            onSeeAll={() => handleSeeAll('price', 15000, 'Best Deals under $15k')}
+                        />
+                        <CarRow
+                            title="Honda Collection"
+                            vehicles={hondaCars}
+                            loading={isLoading}
+                            onSeeAll={() => handleSeeAll('make', 'Honda', 'Honda Collection')}
+                        />
+                    </div>
+                )}
 
-                                    <div className="space-y-2 mb-6 flex-1 text-sm border-t border-gray-50 pt-4">
-                                        <div className="flex items-center text-gray-500">
-                                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            {vehicle.mileage !== 'N/A' ? `${vehicle.mileage} miles` : 'Mileage N/A'}
-                                        </div>
-                                        <div className="flex items-center text-gray-500">
-                                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            </svg>
-                                            {vehicle.location}
-                                        </div>
-                                    </div>
+                {/* View 2: Search Results / Category Grid */}
+                {(activeView === 'search' || activeView === 'category') && (
+                    <div className="px-4 sm:px-6 lg:px-8 mt-8">
+                        {/* Back Button */}
+                        <button
+                            onClick={handleBackToHome}
+                            className="mb-6 inline-flex items-center text-gray-500 hover:text-blue-600 font-semibold transition-colors"
+                        >
+                            <ChevronLeft className="h-5 w-5 mr-1" /> Back to Home
+                        </button>
 
-                                    <a
-                                        href={vehicle.marketplace_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="block w-full text-center bg-black hover:bg-gray-800 text-white font-semibold text-sm py-3 rounded-lg transition-colors"
-                                    >
-                                        View Listing
-                                    </a>
-                                </div>
+                        <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                            {viewTitle}
+                        </h2>
+
+                        {searchLoading ? (
+                            <div className="flex justify-center py-20">
+                                <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
                             </div>
-                        ))}
+                        ) : browseCars.length === 0 ? (
+                            <div className="text-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
+                                <p className="text-gray-500 text-lg">No results found.</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                {browseCars.map(vehicle => (
+                                    <VehicleCard key={vehicle.id} vehicle={vehicle} />
+                                ))}
+                            </div>
+                        )}
+
+                        {!searchLoading && browseCars.length > 0 && (
+                            <div className="mt-12 flex justify-center">
+                                <button className="bg-white border border-gray-300 text-gray-700 font-bold py-3 px-8 rounded-full hover:bg-gray-50 hover:border-gray-400 transition-colors shadow-sm">
+                                    Load More Vehicles
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

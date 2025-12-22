@@ -1,29 +1,49 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+const supabase = (supabaseUrl && supabaseKey)
+    ? createClient(supabaseUrl, supabaseKey)
+    : null;
 
 export async function POST(request: Request) {
     try {
-        const { query: searchQuery, useStaging } = await request.json();
+        if (!supabase) {
+            console.error("Supabase client not initialized. Missing env vars.");
+            return NextResponse.json({ error: 'Server Verification Error: Missing Supabase credentials.' }, { status: 500 });
+        }
+        const { query: searchQuery, maxPrice, limit, make } = await request.json();
 
-        // Determine which table to search
-        const tableName = useStaging ? 'staging_vehicles' : 'vehicles';
+        // Hardcoded to staging_vehicles as requested
+        const tableName = 'staging_vehicles';
 
-        console.log(`🔎 Searching Database (${tableName}) for: "${searchQuery || 'ALL'}"`);
+        console.log(`🔎 Searching (${tableName}) - Query: "${searchQuery || ''}", MaxPrice: ${maxPrice || 'N/A'}`);
 
         let queryBuilder = supabase
             .from(tableName)
             .select('*');
 
-        // If a query exists, perform a case-insensitive OR search
+        // Text Search (Title/Make/Model)
         if (searchQuery && searchQuery.trim() !== '') {
             const cleanQuery = searchQuery.trim();
-            // Filter: title OR make OR model contains the query string
             queryBuilder = queryBuilder.or(`title.ilike.%${cleanQuery}%,make.ilike.%${cleanQuery}%,model.ilike.%${cleanQuery}%`);
+        }
+
+        // Specific Make Filter (for categories)
+        if (make) {
+            queryBuilder = queryBuilder.ilike('make', `%${make}%`);
+        }
+
+        // Price Filter
+        if (maxPrice) {
+            queryBuilder = queryBuilder.lte('price', maxPrice);
+        }
+
+        // Limit results if requested
+        if (limit) {
+            queryBuilder = queryBuilder.limit(limit);
         }
 
         // Always order by posted_date descending (newest first)
