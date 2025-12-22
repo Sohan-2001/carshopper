@@ -1,59 +1,56 @@
-require('dotenv').config({ path: '../.env' });
+require('dotenv').config();
 const { ApifyClient } = require('apify-client');
 const { createClient } = require('@supabase/supabase-js');
 
 // --- CONFIGURATION ---
-// Toggle this to TRUE when testing new scrapers, FALSE for production
+// Keep STAGING=true if you want to verify data first, or false to go live
 const USE_STAGING = true;
 const TABLE_NAME = USE_STAGING ? 'staging_vehicles' : 'vehicles';
 
-// The list of cars to scrape daily
 const CARS_TO_SCRAPE = [
     { make: 'Honda', model: 'Civic' },
     { make: 'Toyota', model: 'Camry' },
-    { make: 'Ford', model: 'F-150' }
+    { make: 'Ford', model: 'F-150' },
+    { make: 'Nissan', model: 'Altima' }
 ];
 
 const apifyClient = new ApifyClient({
     token: process.env.APIFY_API_TOKEN,
 });
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.error('❌ Missing Supabase Environment Variables!');
-    console.error('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'Set' : 'NOT SET');
-    console.error('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseKey ? 'Set' : 'NOT SET');
-    process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 async function saveToDatabase(vehicles) {
     if (vehicles.length === 0) return;
 
-    // Save to the configured table (vehicles OR staging_vehicles)
     const { error } = await supabase
         .from(TABLE_NAME)
         .upsert(vehicles, { onConflict: 'marketplace_url' });
 
-    if (error) console.error(`❌ Supabase Error (${TABLE_NAME}):`, error.message);
+    if (error) console.error(`❌ Supabase Error:`, error.message);
     else console.log(`✅ Saved ${vehicles.length} cars to '${TABLE_NAME}'.`);
 }
 
-// --- SCRAPER: Cars.com ---
 async function scrapeCarsCom(make, model) {
     console.log(`\n🚗 [Cars.com] Scraping ${make} ${model}...`);
+    // Search constraints: Used cars, Max Price $100k, Nationwide
     const searchUrl = `https://www.cars.com/shopping/results/?stock_type=used&makes[]=${make.toLowerCase()}&models[]=${make.toLowerCase()}-${model.toLowerCase()}&list_price_max=100000&maximum_distance=all&zip=90210`;
 
     try {
         const run = await apifyClient.actor('agenscrape/cars-com-scraper').call({
             searchUrl: searchUrl,
-            maxResults: 20
+            maxResults: 20 // Adjust this number based on your budget/needs
         });
 
         const { items } = await apifyClient.dataset(run.defaultDatasetId).listItems();
+
+        if (!items || items.length === 0) {
+            console.log(`No items found for ${make} ${model}`);
+            return [];
+        }
 
         return items.map(item => ({
             title: item.title || `${item.year} ${item.make} ${item.model}`,
@@ -76,17 +73,16 @@ async function scrapeCarsCom(make, model) {
 }
 
 async function runBatch() {
-    console.log(`Starting Bulk Scrape -> Target Table: ${TABLE_NAME}`);
+    console.log(`--- STARTING BATCH SCRAPE -> ${TABLE_NAME} ---`);
 
     for (const car of CARS_TO_SCRAPE) {
-        // Run Scraper
-        const carsComData = await scrapeCarsCom(car.make, car.model);
-        await saveToDatabase(carsComData);
+        const vehicles = await scrapeCarsCom(car.make, car.model);
+        await saveToDatabase(vehicles);
 
-        // Wait 5 seconds between cars to be polite
+        // Polite delay
         await new Promise(resolve => setTimeout(resolve, 5000));
     }
-    console.log("\n--- Bulk Scrape Complete ---");
+    console.log("--- BATCH COMPLETE ---");
 }
 
 runBatch();
