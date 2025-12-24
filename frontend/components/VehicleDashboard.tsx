@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { Search, MapPin, Gauge, ExternalLink, Car, Menu, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Search, MapPin, Gauge, ExternalLink, Car, ChevronRight, ChevronLeft, Heart } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabaseClient';
 
 interface Vehicle {
     id: string;
@@ -19,7 +21,7 @@ interface Vehicle {
 }
 
 // Reuseable Card Component
-const VehicleCard = ({ vehicle }: { vehicle: Vehicle }) => (
+const VehicleCard = ({ vehicle, isFavorite, onToggleFavorite }: { vehicle: Vehicle, isFavorite: boolean, onToggleFavorite: (id: string) => void }) => (
     <div className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all duration-300 overflow-hidden flex flex-col h-full min-w-[280px] md:min-w-[320px]">
         {/* Image */}
         <div className="relative h-48 w-full bg-gray-100 overflow-hidden">
@@ -37,6 +39,18 @@ const VehicleCard = ({ vehicle }: { vehicle: Vehicle }) => (
                 </div>
             )}
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent h-24"></div>
+
+            {/* Heart Button */}
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onToggleFavorite(vehicle.id);
+                }}
+                className="absolute top-3 right-3 p-2 rounded-full bg-white/80 backdrop-blur-sm hover:bg-white text-gray-400 hover:text-red-500 transition-all shadow-sm group-hover:scale-110 active:scale-95 z-10"
+            >
+                <Heart className={`h-5 w-5 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
+            </button>
         </div>
 
         {/* Content */}
@@ -77,7 +91,7 @@ const VehicleCard = ({ vehicle }: { vehicle: Vehicle }) => (
 );
 
 // Horizontal Scrolling Row
-const CarRow = ({ title, vehicles, loading, onSeeAll }: { title: string, vehicles: Vehicle[], loading: boolean, onSeeAll: () => void }) => {
+const CarRow = ({ title, vehicles, loading, onSeeAll, favorites, onToggleFavorite }: { title: string, vehicles: Vehicle[], loading: boolean, onSeeAll: () => void, favorites: Set<string>, onToggleFavorite: (id: string) => void }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
 
     const scroll = (direction: 'left' | 'right') => {
@@ -133,7 +147,11 @@ const CarRow = ({ title, vehicles, loading, onSeeAll }: { title: string, vehicle
                 >
                     {vehicles.map(vehicle => (
                         <div key={vehicle.id} className="snap-start">
-                            <VehicleCard vehicle={vehicle} />
+                            <VehicleCard
+                                vehicle={vehicle}
+                                isFavorite={favorites.has(vehicle.id)}
+                                onToggleFavorite={onToggleFavorite}
+                            />
                         </div>
                     ))}
                 </div>
@@ -143,6 +161,9 @@ const CarRow = ({ title, vehicles, loading, onSeeAll }: { title: string, vehicle
 };
 
 export default function VehicleDashboard() {
+    const { user, openLoginModal } = useAuth();
+    const [favorites, setFavorites] = useState<Set<string>>(new Set());
+
     // State for Categories
     const [recentCars, setRecentCars] = useState<Vehicle[]>([]);
     const [cheapCars, setCheapCars] = useState<Vehicle[]>([]);
@@ -197,7 +218,60 @@ export default function VehicleDashboard() {
         };
 
         fetchCategories();
+        fetchCategories();
     }, []);
+
+    // Fetch Favorites
+    useEffect(() => {
+        const fetchFavorites = async () => {
+            if (!user) {
+                setFavorites(new Set());
+                return;
+            }
+            const { data, error } = await supabase
+                .from('favorites')
+                .select('vehicle_id')
+                .eq('user_id', user.id);
+
+            if (!error && data) {
+                setFavorites(new Set(data.map((item: any) => item.vehicle_id)));
+            }
+        };
+
+        fetchFavorites();
+    }, [user]);
+
+    const handleToggleFavorite = async (vehicleId: string) => {
+        if (!user) {
+            openLoginModal();
+            return;
+        }
+
+        const newFavorites = new Set(favorites);
+        if (newFavorites.has(vehicleId)) {
+            newFavorites.delete(vehicleId);
+            setFavorites(newFavorites);
+            // Optimistic update done, now persist
+            const { error } = await supabase.from('favorites').delete().match({ user_id: user.id, vehicle_id: vehicleId });
+            if (error) {
+                // Revert if error
+                console.error("Error removing favorite:", error);
+                newFavorites.add(vehicleId);
+                setFavorites(new Set(newFavorites));
+            }
+        } else {
+            newFavorites.add(vehicleId);
+            setFavorites(newFavorites);
+            // Optimistic update done, now persist
+            const { error } = await supabase.from('favorites').insert({ user_id: user.id, vehicle_id: vehicleId });
+            if (error) {
+                // Revert if error
+                console.error("Error adding favorite:", error);
+                newFavorites.delete(vehicleId);
+                setFavorites(new Set(newFavorites));
+            }
+        }
+    };
 
     // Handle Search
     const handleSearch = async (override?: string) => {
@@ -265,23 +339,7 @@ export default function VehicleDashboard() {
 
     return (
         <div className="bg-slate-50 min-h-screen font-sans selection:bg-blue-200">
-            {/* Navbar */}
-            <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-16 items-center">
-                        <div className="flex items-center cursor-pointer" onClick={handleBackToHome}>
-                            <Car className="h-7 w-7 text-blue-700 mr-2" />
-                            <span className="text-xl font-extrabold text-slate-900 tracking-tight">CarShopper</span>
-                        </div>
-                        <div className="hidden md:flex space-x-8">
-                            <a className="text-sm font-bold text-gray-700 hover:text-blue-700 cursor-pointer">Buy</a>
-                            <a className="text-sm font-bold text-gray-700 hover:text-blue-700 cursor-pointer">Sell</a>
-                            <a className="text-sm font-bold text-gray-700 hover:text-blue-700 cursor-pointer">Reviews</a>
-                        </div>
-                        <Menu className="md:hidden h-6 w-6 text-gray-700" />
-                    </div>
-                </div>
-            </nav>
+            {/* Navbar Removed (Moved to Global Layout) */}
 
             {/* Hero */}
             <div className="bg-gradient-to-r from-slate-900 to-slate-800 pt-16 pb-24 sm:pt-24 sm:pb-32 px-4 relative overflow-hidden">
@@ -323,18 +381,24 @@ export default function VehicleDashboard() {
                             vehicles={recentCars}
                             loading={isLoading}
                             onSeeAll={() => handleSeeAll('sort', 'newest', 'Just Arrived')}
+                            favorites={favorites}
+                            onToggleFavorite={handleToggleFavorite}
                         />
                         <CarRow
                             title="Best Deals under $15k"
                             vehicles={cheapCars}
                             loading={isLoading}
                             onSeeAll={() => handleSeeAll('price', 15000, 'Best Deals under $15k')}
+                            favorites={favorites}
+                            onToggleFavorite={handleToggleFavorite}
                         />
                         <CarRow
                             title="Honda Collection"
                             vehicles={hondaCars}
                             loading={isLoading}
                             onSeeAll={() => handleSeeAll('make', 'Honda', 'Honda Collection')}
+                            favorites={favorites}
+                            onToggleFavorite={handleToggleFavorite}
                         />
                     </div>
                 )}
@@ -365,7 +429,12 @@ export default function VehicleDashboard() {
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                 {browseCars.map(vehicle => (
-                                    <VehicleCard key={vehicle.id} vehicle={vehicle} />
+                                    <VehicleCard
+                                        key={vehicle.id}
+                                        vehicle={vehicle}
+                                        isFavorite={favorites.has(vehicle.id)}
+                                        onToggleFavorite={handleToggleFavorite}
+                                    />
                                 ))}
                             </div>
                         )}
