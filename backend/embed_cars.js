@@ -2,10 +2,10 @@ require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// Init Supabase
+// Init Supabase with SERVICE ROLE KEY (Admin Access)
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY // <--- ✅ CHANGED TO ADMIN KEY
 );
 
 // Init Gemini

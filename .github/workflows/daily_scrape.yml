@@ -2,13 +2,19 @@ name: Auto Car Scraper & Embedder
 
 on:
   schedule:
-    # Runs at 08:00 and 20:00 UTC every day
     - cron: '0 8,20 * * *'
-  workflow_dispatch: # Allows manual trigger
+  workflow_dispatch: 
+    inputs:
+      skip_scrape:
+        description: 'Skip Scraper? (True = Organize Only)'
+        required: true
+        default: 'false'
+        type: boolean
 
 jobs:
   scrape_and_embed:
     runs-on: ubuntu-latest
+    # environment: main  <-- DELETE THIS LINE (We don't need it for Repository Secrets)
     
     steps:
       - name: Checkout Code
@@ -17,28 +23,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Install Dependencies
         run: |
           cd backend
           npm install
 
-      - name: 1. Run Scraper (Get Cars)
-        run: |
-          cd backend
-          node bulk_scraper.js
-        env:
-          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
-      - name: 2. Run Embedder (Add Intelligence)
+      - name: Run Embedder (Organize Data)
         run: |
           cd backend
           node embed_cars.js
         env:
-          # Needs Supabase + Gemini Key
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }} 
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
