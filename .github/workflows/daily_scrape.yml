@@ -14,6 +14,7 @@ on:
 jobs:
   scrape_and_embed:
     runs-on: ubuntu-latest
+    environment: main
     # environment: main  <-- DELETE THIS LINE (We don't need it for Repository Secrets)
     
     steps:

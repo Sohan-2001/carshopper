@@ -168,57 +168,49 @@ export default function VehicleDashboard() {
     const [recentCars, setRecentCars] = useState<Vehicle[]>([]);
     const [cheapCars, setCheapCars] = useState<Vehicle[]>([]);
     const [hondaCars, setHondaCars] = useState<Vehicle[]>([]);
-
-    // State for Search & Views
-    const [browseCars, setBrowseCars] = useState<Vehicle[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    // View State: 'home' | 'search' | 'category'
-    const [activeView, setActiveView] = useState<'home' | 'search' | 'category'>('home');
-    const [viewTitle, setViewTitle] = useState('Browse Inventory');
-
+    // Semantic search state
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchLoading, setSearchLoading] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
+    const [searchResults, setSearchResults] = useState<Vehicle[]>([]);
+    const [activeView, setActiveView] = useState<'home' | 'results'>('home');
 
     // Initial Load - Fetch Categories
     useEffect(() => {
-        const fetchCategories = async () => {
+        const fetchSection = async (query: string) => {
+            try {
+                const res = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+                const data = await res.json();
+                return data.cars || [];
+            } catch (error) {
+                console.error('Error fetching section:', error);
+                return [];
+            }
+        };
+
+        const loadHome = async () => {
             setIsLoading(true);
             try {
-                // Parallel fetching
-                const [recent, cheap, honda, all] = await Promise.all([
-                    fetch('/api/search', {
-                        method: 'POST',
-                        body: JSON.stringify({ limit: 10 }) // Recent
-                    }).then(r => r.json()),
-                    fetch('/api/search', {
-                        method: 'POST',
-                        body: JSON.stringify({ maxPrice: 15000, limit: 10 }) // Cheap
-                    }).then(r => r.json()),
-                    fetch('/api/search', {
-                        method: 'POST',
-                        body: JSON.stringify({ make: 'Honda', limit: 10 }) // Honda
-                    }).then(r => r.json()),
-                    fetch('/api/search', {
-                        method: 'POST',
-                        body: JSON.stringify({ limit: 20 }) // Browse All (First 20)
-                    }).then(r => r.json())
+                const [recent, cheap, honda] = await Promise.all([
+                    fetchSection('recent car listings'),
+                    fetchSection('best deals affordable cars under $15000'),
+                    fetchSection('Honda cars for sale')
                 ]);
 
-                setRecentCars(recent.data || []);
-                setCheapCars(cheap.data || []);
-                setHondaCars(honda.data || []);
-                setBrowseCars(all.data || []);
-
-            } catch (error) {
-                console.error("Error fetching dashboard data:", error);
+                setRecentCars(recent);
+                setCheapCars(cheap);
+                setHondaCars(honda);
             } finally {
                 setIsLoading(false);
             }
         };
 
-        fetchCategories();
-        fetchCategories();
+        loadHome();
     }, []);
 
     // Fetch Favorites
@@ -273,64 +265,48 @@ export default function VehicleDashboard() {
         }
     };
 
-    // Handle Search
-    const handleSearch = async (override?: string) => {
-        const query = override !== undefined ? override : searchQuery;
-
+    const runSearch = async (query: string) => {
         if (!query.trim()) {
             setActiveView('home');
+            setSearchResults([]);
             return;
         }
 
-        setActiveView('search');
-        setViewTitle(`Search Results for "${query}"`);
-        setSearchLoading(true);
+        setIsSearching(true);
+        setActiveView('results');
+        setSearchQuery(query);
 
         try {
             const res = await fetch('/api/search', {
                 method: 'POST',
-                body: JSON.stringify({ query: query })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query })
             });
+
             const data = await res.json();
-            setBrowseCars(data.data || []);
-        } catch (e) {
-            console.error(e);
+            setSearchResults(data.cars || []);
+        } catch (error) {
+            console.error('Search error:', error);
+            setSearchResults([]);
         } finally {
-            setSearchLoading(false);
+            setIsSearching(false);
         }
     };
 
-    // Handle "See All" Click
-    const handleSeeAll = async (type: string, value: any, title: string) => {
-        setActiveView('category');
-        setViewTitle(title);
-        setSearchLoading(true);
-        // Clear search query when entering a category to avoid confusion
-        setSearchQuery('');
+    // Handle Search (semantic)
+    const handleSearch = async () => {
+        runSearch(searchQuery);
+    };
 
-        let payload = {};
-        if (type === 'sort' && value === 'newest') payload = { limit: 50 }; // Just fetch more recent
-        if (type === 'price') payload = { maxPrice: value, limit: 50 };
-        if (type === 'make') payload = { make: value, limit: 50 };
-
-        try {
-            const res = await fetch('/api/search', {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            });
-            const data = await res.json();
-            setBrowseCars(data.data || []);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setSearchLoading(false);
-        }
+    const handleSeeAll = (query: string) => {
+        runSearch(query);
     };
 
     const handleBackToHome = () => {
         setActiveView('home');
         setSearchQuery('');
-        setBrowseCars([]); // Optional: clear or keep cache
+        setSearchResults([]);
+        setIsSearching(false);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -365,9 +341,13 @@ export default function VehicleDashboard() {
                             </div>
                             <button
                                 onClick={() => handleSearch()}
-                                className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-md font-bold transition-transform active:scale-95 mt-2 md:mt-0"
+                                disabled={isSearching}
+                                className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-8 py-3 rounded-md font-bold transition-transform active:scale-95 mt-2 md:mt-0 flex items-center justify-center gap-2"
                             >
-                                Search
+                                {isSearching && (
+                                    <span className="inline-block h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
+                                )}
+                                {isSearching ? 'Searching...' : 'Search'}
                             </button>
                         </div>
                     </div>
@@ -376,15 +356,14 @@ export default function VehicleDashboard() {
 
             {/* Main Content */}
             <div className="max-w-[1400px] mx-auto py-12">
-
-                {/* View 1: Categorized Rows (Default) */}
+                {/* View: Home */}
                 {activeView === 'home' && (
                     <div className="space-y-4">
                         <CarRow
                             title="Just Arrived"
                             vehicles={recentCars}
                             loading={isLoading}
-                            onSeeAll={() => handleSeeAll('sort', 'newest', 'Just Arrived')}
+                            onSeeAll={() => handleSeeAll('recent car listings')}
                             favorites={favorites}
                             onToggleFavorite={handleToggleFavorite}
                         />
@@ -392,7 +371,7 @@ export default function VehicleDashboard() {
                             title="Best Deals under $15k"
                             vehicles={cheapCars}
                             loading={isLoading}
-                            onSeeAll={() => handleSeeAll('price', 15000, 'Best Deals under $15k')}
+                            onSeeAll={() => handleSeeAll('best deals affordable cars under $15000')}
                             favorites={favorites}
                             onToggleFavorite={handleToggleFavorite}
                         />
@@ -400,39 +379,46 @@ export default function VehicleDashboard() {
                             title="Honda Collection"
                             vehicles={hondaCars}
                             loading={isLoading}
-                            onSeeAll={() => handleSeeAll('make', 'Honda', 'Honda Collection')}
+                            onSeeAll={() => handleSeeAll('Honda cars for sale')}
                             favorites={favorites}
                             onToggleFavorite={handleToggleFavorite}
                         />
                     </div>
                 )}
 
-                {/* View 2: Search Results / Category Grid */}
-                {(activeView === 'search' || activeView === 'category') && (
+                {/* View: Search Results */}
+                {activeView === 'results' && (
                     <div className="px-4 sm:px-6 lg:px-8 mt-8">
-                        {/* Back Button */}
-                        <button
-                            onClick={handleBackToHome}
-                            className="mb-6 inline-flex items-center text-gray-500 hover:text-blue-600 font-semibold transition-colors"
-                        >
-                            <ChevronLeft className="h-5 w-5 mr-1" /> Back to Home
-                        </button>
+                        <div className="flex items-center justify-between mb-6">
+                            <button
+                                onClick={handleBackToHome}
+                                className="inline-flex items-center text-gray-500 hover:text-blue-600 font-semibold transition-colors"
+                            >
+                                <ChevronLeft className="h-5 w-5 mr-1" /> Back to Home
+                            </button>
+                            <button
+                                onClick={handleBackToHome}
+                                className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+                            >
+                                Clear Search
+                            </button>
+                        </div>
 
                         <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                            {viewTitle}
+                            Search Results {searchQuery ? `for "${searchQuery}"` : ''}
                         </h2>
 
-                        {searchLoading ? (
+                        {isSearching ? (
                             <div className="flex justify-center py-20">
                                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
                             </div>
-                        ) : browseCars.length === 0 ? (
+                        ) : searchResults.length === 0 ? (
                             <div className="text-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
                                 <p className="text-gray-500 text-lg">No results found.</p>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                {browseCars.map(vehicle => (
+                                {searchResults.map(vehicle => (
                                     <VehicleCard
                                         key={vehicle.id}
                                         vehicle={vehicle}
@@ -440,14 +426,6 @@ export default function VehicleDashboard() {
                                         onToggleFavorite={handleToggleFavorite}
                                     />
                                 ))}
-                            </div>
-                        )}
-
-                        {!searchLoading && browseCars.length > 0 && (
-                            <div className="mt-12 flex justify-center">
-                                <button className="bg-white border border-gray-300 text-gray-700 font-bold py-3 px-8 rounded-full hover:bg-gray-50 hover:border-gray-400 transition-colors shadow-sm">
-                                    Load More Vehicles
-                                </button>
                             </div>
                         )}
                     </div>

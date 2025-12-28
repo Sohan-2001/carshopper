@@ -1,87 +1,53 @@
-import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { NextRequest, NextResponse } from 'next/server';
 
+// Env setup with runtime validation
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const geminiApiKey = process.env.GEMINI_API_KEY;
 
-const supabase = (supabaseUrl && supabaseKey)
-    ? createClient(supabaseUrl, supabaseKey)
-    : null;
+if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set');
+if (!supabaseAnonKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is not set');
+if (!geminiApiKey) throw new Error('GEMINI_API_KEY is not set');
 
-// Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+// 1. Init Supabase
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// 2. Init Gemini
+const genAI = new GoogleGenerativeAI(geminiApiKey);
 const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
-export async function POST(request: Request) {
-    try {
-        if (!supabase) {
-            console.error("Supabase client not initialized. Missing env vars.");
-            return NextResponse.json({ error: 'Server Verification Error: Missing Supabase credentials.' }, { status: 500 });
-        }
+export async function POST(request: NextRequest) {
+  try {
+    const { query } = await request.json();
 
-        const { query: searchQuery, maxPrice, limit, make } = await request.json();
-        const tableName = 'staging_vehicles';
-
-        console.log(`🔎 Searching - Query: "${searchQuery || ''}", MaxPrice: ${maxPrice || 'N/A'}`);
-
-        let vehicles = [];
-
-        // 1. Semantic Search (if query exists)
-        if (searchQuery && searchQuery.trim() !== '') {
-            try {
-                // Generate Embedding
-                const result = await model.embedContent(searchQuery);
-                const vector = result.embedding.values;
-
-                console.log("Vector generated, calling RPC...");
-
-                // Call RPC
-                const { data, error } = await supabase.rpc('match_cars', {
-                    query_embedding: vector,
-                    match_threshold: 0.5,
-                    match_count: limit || 20
-                });
-
-                if (error) throw error;
-                vehicles = data;
-
-            } catch (err: any) {
-                console.error("Vector Search Failed, falling back to basic:", err.message);
-                // Fallback to basic search if vector fails (e.g. RPC not found)
-                const { data } = await supabase
-                    .from(tableName)
-                    .select('*')
-                    .ilike('title', `%${searchQuery}%`)
-                    .limit(limit || 20);
-
-                vehicles = data || [];
-            }
-
-            // 2. Standard Filter/Browse (if no query)
-        } else {
-            let queryBuilder = supabase.from(tableName).select('*');
-
-            if (make) queryBuilder = queryBuilder.ilike('make', `%${make}%`);
-            if (maxPrice) queryBuilder = queryBuilder.lte('price', maxPrice);
-            if (limit) queryBuilder = queryBuilder.limit(limit);
-
-            const { data, error } = await queryBuilder.order('posted_date', { ascending: false });
-
-            if (error) throw error;
-            vehicles = data || [];
-        }
-
-        console.log(`✅ Found ${vehicles?.length || 0} results.`);
-
-        return NextResponse.json({
-            message: 'Success',
-            count: vehicles?.length || 0,
-            data: vehicles
-        });
-
-    } catch (error: any) {
-        console.error("API Search Error:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!query) {
+      return NextResponse.json({ error: "No query provided" }, { status: 400 });
     }
+
+    console.log(`🔍 Searching for: "${query}"`);
+
+    // 3. Convert User's Search Text -> Vector Numbers
+    const result = await model.embedContent(query);
+    const vector = result.embedding.values; // This is the [0.02, -0.01...] array
+
+    // 4. Send Vector to Supabase "match_cars" function
+    const { data: cars, error } = await supabase.rpc('match_cars', {
+      query_embedding: vector,
+      match_threshold: 0.1, // <--- CHANGE THIS to 0.1 (We want to see EVERYTHING first)
+      match_count: 20
+    });
+
+    if (error) {
+      console.error("Supabase Error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ cars });
+
+  } catch (err) {
+    console.error("Server Error:", err);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
 }
