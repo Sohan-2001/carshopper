@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.87.3",
     "apify-client": "^2.21.0",
     "axios": "^1.13.2",

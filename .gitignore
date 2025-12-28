@@ -28,7 +28,6 @@ yarn-error.log*
 Thumbs.db
 
 # IDEs
-.vscode/
 .idea/
 
 # Testing

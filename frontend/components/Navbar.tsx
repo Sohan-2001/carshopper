@@ -8,6 +8,7 @@ import { Car, Menu, User as UserIcon, LogOut, Heart, ShieldCheck, ChevronDown } 
 export default function Navbar() {
     const { user, profile, role, openLoginModal, signOut } = useAuth();
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // Close dropdown when clicking outside
@@ -121,12 +122,91 @@ export default function Navbar() {
                         )}
                     </div>
 
-                    {/* Mobile Menu Icon (Placeholder for now) */}
+                    {/* Mobile Menu Icon */}
                     <div className="md:hidden flex items-center">
-                        <Menu className="h-6 w-6 text-gray-700" />
+                        <button
+                            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                            className="p-2 rounded-md text-gray-700 hover:text-blue-700 hover:bg-gray-100 focus:outline-none"
+                        >
+                            <Menu className="h-6 w-6" />
+                        </button>
                     </div>
                 </div>
             </div>
+
+            {/* Mobile Menu Dropdown */}
+            {isMobileMenuOpen && (
+                <div className="md:hidden bg-white shadow-lg border-t border-gray-100 px-4 pt-2 pb-6 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                    <div className="space-y-2 mt-4">
+                        <Link
+                            href="/buy"
+                            className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                        >
+                            Buy
+                        </Link>
+                        <Link
+                            href="/sell"
+                            className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                        >
+                            Sell
+                        </Link>
+                        <Link
+                            href="/reviews"
+                            className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                        >
+                            Reviews
+                        </Link>
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-100">
+                        {!user ? (
+                            <div className="flex flex-col space-y-3">
+                                <button
+                                    onClick={() => {
+                                        openLoginModal();
+                                        setIsMobileMenuOpen(false);
+                                    }}
+                                    className="w-full bg-blue-600 text-white text-base font-bold py-3 rounded-xl shadow-md active:scale-95 transition-transform"
+                                >
+                                    Log In
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <Link
+                                    href="/profile"
+                                    className="flex items-center px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-50"
+                                    onClick={() => setIsMobileMenuOpen(false)}
+                                >
+                                    <UserIcon className="h-5 w-5 mr-3 text-gray-400" />
+                                    My Profile
+                                </Link>
+                                <Link
+                                    href="/profile"
+                                    className="flex items-center px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-50"
+                                    onClick={() => setIsMobileMenuOpen(false)}
+                                >
+                                    <Heart className="h-5 w-5 mr-3 text-gray-400" />
+                                    My Garage
+                                </Link>
+                                <button
+                                    onClick={() => {
+                                        signOut();
+                                        setIsMobileMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center px-3 py-2 rounded-md text-base font-medium text-red-600 hover:bg-red-50"
+                                >
+                                    <LogOut className="h-5 w-5 mr-3" />
+                                    Sign Out
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </nav>
     );
 }

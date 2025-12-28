@@ -142,7 +142,7 @@ const CarRow = ({ title, vehicles, loading, onSeeAll, favorites, onToggleFavorit
                 {/* Container */}
                 <div
                     ref={scrollRef}
-                    className="flex overflow-x-auto gap-6 px-4 sm:px-6 lg:px-8 pb-8 -mx-4 sm:-mx-6 lg:-mx-8 scrollbar-hide snap-x"
+                    className="flex overflow-x-auto gap-6 px-4 sm:px-6 lg:px-8 pb-8 scrollbar-hide snap-x"
                     style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                 >
                     {vehicles.map(vehicle => (
@@ -349,19 +349,23 @@ export default function VehicleDashboard() {
                         Find the real deal.
                     </h1>
                     <div className="relative max-w-2xl mx-auto">
-                        <div className="flex items-center bg-white rounded-lg shadow-2xl p-2 focus-within:ring-4 focus-within:ring-blue-500/30 transition-shadow">
-                            <Search className="h-5 w-5 text-gray-400 ml-3" />
-                            <input
-                                type="text"
-                                className="w-full bg-transparent border-none focus:ring-0 text-lg font-medium text-gray-900 placeholder-gray-400 py-3 px-3"
-                                placeholder="Search by make, model, or keyword..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                            />
+                        {/* Mobile responsive search bar container */}
+                        <div className="flex flex-col md:flex-row items-center bg-white rounded-lg shadow-2xl p-2 focus-within:ring-4 focus-within:ring-blue-500/30 transition-shadow">
+                            {/* Input Area */}
+                            <div className="flex items-center w-full">
+                                <Search className="h-5 w-5 text-gray-400 ml-3 shrink-0" />
+                                <input
+                                    type="text"
+                                    className="w-full bg-transparent border-none focus:ring-0 text-base md:text-lg font-medium text-gray-900 placeholder-gray-400 py-3 px-3"
+                                    placeholder="Search by make, model..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                />
+                            </div>
                             <button
                                 onClick={() => handleSearch()}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-md font-bold transition-transform active:scale-95"
+                                className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-md font-bold transition-transform active:scale-95 mt-2 md:mt-0"
                             >
                                 Search
                             </button>
