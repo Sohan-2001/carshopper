@@ -2,14 +2,39 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthContext'; // Keeping for openLoginModal, component-level actions
+import { supabase } from '@/lib/supabaseClient'; // Direct supabase usage as requested
 import { Car, Menu, User as UserIcon, LogOut, Heart, ShieldCheck, ChevronDown } from 'lucide-react';
+import { User } from '@supabase/supabase-js';
 
 export default function Navbar() {
-    const { user, profile, role, openLoginModal, signOut } = useAuth();
+    // We still use useAuth for specific UI actions/global state like profile/role/modal
+    const { profile, role, openLoginModal, signOut } = useAuth();
+
+    // Local User State for robust, instant updates as requested
+    const [user, setUser] = useState<User | null>(null);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Auth Listener
+    useEffect(() => {
+        // 1. Get initial user
+        const getUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            setUser(user);
+        };
+        getUser();
+
+        // 2. Listen for changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+        });
+
+        return () => {
+            subscription.unsubscribe();
+        };
+    }, []);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -43,6 +68,14 @@ export default function Navbar() {
                     {/* Desktop Actions */}
                     <div className="hidden md:flex items-center space-x-8">
                         <Link href="/buy" className="text-sm font-bold text-gray-700 hover:text-blue-700 transition-colors">Buy</Link>
+
+                        {/* CONDITIONAL SCOREBOARD LINK */}
+                        {user && (
+                            <Link href="/scoreboard" className="text-sm font-bold text-gray-700 hover:text-blue-700 transition-colors">
+                                Scoreboard
+                            </Link>
+                        )}
+
                         <Link href="/sell" className="text-sm font-bold text-gray-700 hover:text-blue-700 transition-colors">Sell</Link>
                         <Link href="/reviews" className="text-sm font-bold text-gray-700 hover:text-blue-700 transition-colors">Reviews</Link>
 
@@ -95,6 +128,16 @@ export default function Navbar() {
                                                 My Garage
                                             </Link>
 
+                                            {/* DROPDOWN LINK - visible since user is present */}
+                                            <Link
+                                                href="/scoreboard"
+                                                className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                                                onClick={() => setIsDropdownOpen(false)}
+                                            >
+                                                <ShieldCheck className="h-4 w-4 mr-3 text-gray-400 group-hover:text-blue-500" />
+                                                My Scoreboard
+                                            </Link>
+
                                             {role === 'admin' && (
                                                 <Link
                                                     href="/admin"
@@ -145,6 +188,18 @@ export default function Navbar() {
                         >
                             Buy
                         </Link>
+
+                        {/* CONDITIONAL MOBILE LINK */}
+                        {user && (
+                            <Link
+                                href="/scoreboard"
+                                className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                                onClick={() => setIsMobileMenuOpen(false)}
+                            >
+                                Scoreboard
+                            </Link>
+                        )}
+
                         <Link
                             href="/sell"
                             className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-blue-700 hover:bg-blue-50 transition-colors"
