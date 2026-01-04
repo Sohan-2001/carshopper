@@ -20,23 +20,26 @@ const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
 export async function POST(request: NextRequest) {
   try {
-    const { query } = await request.json();
+    // 1. Get query AND userId from the request body
+    const { query, userId } = await request.json();
 
     if (!query) {
       return NextResponse.json({ error: "No query provided" }, { status: 400 });
     }
 
-    console.log(`🔍 Searching for: "${query}"`);
+    console.log(`🔍 Searching for: "${query}" (User ID: ${userId || 'Guest'})`);
 
     // 3. Convert User's Search Text -> Vector Numbers
     const result = await model.embedContent(query);
     const vector = result.embedding.values; // This is the [0.02, -0.01...] array
 
     // 4. Send Vector to Supabase "match_cars" function
+    // We pass 'filter_user_id' so the DB can exclude blocked cars
     const { data: cars, error } = await supabase.rpc('match_cars', {
       query_embedding: vector,
-      match_threshold: 0.1, // <--- CHANGE THIS to 0.1 (We want to see EVERYTHING first)
-      match_count: 20
+      match_threshold: 0.1,
+      match_count: 20,
+      filter_user_id: userId || null
     });
 
     if (error) {

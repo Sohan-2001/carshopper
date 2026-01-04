@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { Search, MapPin, Gauge, ExternalLink, Car, ChevronRight, ChevronLeft, Heart } from 'lucide-react';
+import { Search, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabaseClient';
+import VehicleCard from './VehicleCard';
+import { User } from '@supabase/supabase-js';
 
 interface Vehicle {
     id: string;
@@ -20,78 +22,8 @@ interface Vehicle {
     posted_date?: string;
 }
 
-// Reuseable Card Component
-const VehicleCard = ({ vehicle, isFavorite, onToggleFavorite }: { vehicle: Vehicle, isFavorite: boolean, onToggleFavorite: (id: string) => void }) => (
-    <div className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all duration-300 overflow-hidden flex flex-col h-full min-w-[280px] md:min-w-[320px]">
-        {/* Image */}
-        <div className="relative h-48 w-full bg-gray-100 overflow-hidden">
-            {vehicle.image_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                    src={vehicle.image_url}
-                    alt={vehicle.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-in-out"
-                />
-            ) : (
-                <div className="flex flex-col items-center justify-center h-full text-gray-400 bg-gray-50">
-                    <Car className="h-10 w-10 mb-2 opacity-50" />
-                    <span className="text-xs font-medium">No Image</span>
-                </div>
-            )}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent h-24"></div>
-
-            {/* Heart Button */}
-            <button
-                onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onToggleFavorite(vehicle.id);
-                }}
-                className="absolute top-3 right-3 p-2 rounded-full bg-white/80 backdrop-blur-sm hover:bg-white text-gray-400 hover:text-red-500 transition-all shadow-sm group-hover:scale-110 active:scale-95 z-10"
-            >
-                <Heart className={`h-5 w-5 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
-            </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 flex-1 flex flex-col">
-            <h3 className="text-gray-900 font-bold text-lg leading-tight truncate mb-1" title={vehicle.title}>
-                {vehicle.title}
-            </h3>
-            <div className="text-emerald-700 font-extrabold text-xl mb-3">
-                ${vehicle.price.toLocaleString()}
-            </div>
-
-            <div className="space-y-1.5 mb-4 flex-1 border-t border-gray-100 pt-3">
-                <div className="flex items-center text-sm font-medium text-gray-600">
-                    <Gauge className="h-4 w-4 mr-2 text-gray-400" />
-                    {vehicle.mileage !== 'N/A' ? vehicle.mileage : 'Mileage N/A'}
-                </div>
-                <div className="flex items-center text-sm font-medium text-gray-600">
-                    <MapPin className="h-4 w-4 mr-2 text-gray-400" />
-                    {vehicle.location}
-                </div>
-            </div>
-
-            <div className="flex items-center justify-between mt-auto pt-2">
-                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
-                    Source: {vehicle.source}
-                </span>
-                <a
-                    href={vehicle.marketplace_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center text-blue-600 hover:text-blue-800 text-sm font-bold transition-colors"
-                >
-                    View <ChevronRight className="h-4 w-4 ml-0.5" />
-                </a>
-            </div>
-        </div>
-    </div>
-);
-
 // Horizontal Scrolling Row
-const CarRow = ({ title, vehicles, loading, onSeeAll, favorites, onToggleFavorite }: { title: string, vehicles: Vehicle[], loading: boolean, onSeeAll: () => void, favorites: Set<string>, onToggleFavorite: (id: string) => void }) => {
+const CarRow = ({ title, vehicles, loading, onSeeAll, favorites, user, onHide }: { title: string, vehicles: Vehicle[], loading: boolean, onSeeAll: () => void, favorites: Set<string>, user: User | null, onHide: (id: string) => void }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
 
     const scroll = (direction: 'left' | 'right') => {
@@ -149,8 +81,9 @@ const CarRow = ({ title, vehicles, loading, onSeeAll, favorites, onToggleFavorit
                         <div key={vehicle.id} className="snap-start">
                             <VehicleCard
                                 vehicle={vehicle}
-                                isFavorite={favorites.has(vehicle.id)}
-                                onToggleFavorite={onToggleFavorite}
+                                user={user}
+                                initialIsFavorite={favorites.has(vehicle.id)}
+                                onHide={onHide}
                             />
                         </div>
                     ))}
@@ -161,109 +94,91 @@ const CarRow = ({ title, vehicles, loading, onSeeAll, favorites, onToggleFavorit
 };
 
 export default function VehicleDashboard() {
-    const { user, openLoginModal } = useAuth();
-    const [favorites, setFavorites] = useState<Set<string>>(new Set());
+    const { openLoginModal } = useAuth(); // Keep for modal only
 
-    // State for Categories
+    // 1. State Management
+    const [user, setUser] = useState<User | null>(null);
+    const [favorites, setFavorites] = useState<Set<string>>(new Set());
+    // No explicit 'hiddenIds' state needed if we filter them out of vehicle lists immediately, 
+    // but having fetched them allows for client-side filtering logic if lists grow.
+    // For now, we will filter them during the fetch transformation.
+
+    // Categories
     const [recentCars, setRecentCars] = useState<Vehicle[]>([]);
     const [cheapCars, setCheapCars] = useState<Vehicle[]>([]);
     const [hondaCars, setHondaCars] = useState<Vehicle[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Semantic search state
+    // Search
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [searchResults, setSearchResults] = useState<Vehicle[]>([]);
     const [activeView, setActiveView] = useState<'home' | 'results'>('home');
 
-    // Initial Load - Fetch Categories
+    // 2. The Fetch Logic (useEffect)
     useEffect(() => {
-        const fetchSection = async (query: string) => {
-            try {
-                const res = await fetch('/api/search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query })
-                });
-                const data = await res.json();
-                return data.cars || [];
-            } catch (error) {
-                console.error('Error fetching section:', error);
-                return [];
-            }
-        };
-
-        const loadHome = async () => {
+        const loadContent = async () => {
             setIsLoading(true);
             try {
-                const [recent, cheap, honda] = await Promise.all([
+                // Step 1: Get User
+                const { data: { user: authUser } } = await supabase.auth.getUser();
+                setUser(authUser);
+
+                // Step 2: Parallel Fetch
+                const fetchSection = async (query: string) => {
+                    try {
+                        const res = await fetch('/api/search', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ query })
+                        });
+                        const data = await res.json();
+                        return data.cars || [];
+                    } catch (error) {
+                        console.error('Error fetching section:', error);
+                        return [];
+                    }
+                };
+
+                const userPromises = [];
+                if (authUser) {
+                    userPromises.push(supabase.from('favorites').select('vehicle_id').eq('user_id', authUser.id));
+                    userPromises.push(supabase.from('user_hidden_vehicles').select('vehicle_id').eq('user_id', authUser.id));
+                }
+
+                const [recent, cheap, honda, ...userResults] = await Promise.all([
                     fetchSection('recent car listings'),
                     fetchSection('best deals affordable cars under $15000'),
-                    fetchSection('Honda cars for sale')
+                    fetchSection('Honda cars for sale'),
+                    ...userPromises
                 ]);
 
-                setRecentCars(recent);
-                setCheapCars(cheap);
-                setHondaCars(honda);
+                // Step 3: Process Data
+                let hiddenIds = new Set<string>();
+                if (authUser && userResults.length >= 2) {
+                    const favoritesData = userResults[0].data;
+                    const hiddenData = userResults[1].data;
+
+                    if (favoritesData) setFavorites(new Set(favoritesData.map((item: any) => item.vehicle_id)));
+                    if (hiddenData) hiddenIds = new Set(hiddenData.map((item: any) => item.vehicle_id));
+                }
+
+                // Filter the Cars
+                const filterHidden = (cars: Vehicle[]) => cars.filter(c => !hiddenIds.has(c.id));
+
+                setRecentCars(filterHidden(recent));
+                setCheapCars(filterHidden(cheap));
+                setHondaCars(filterHidden(honda));
+
+            } catch (error) {
+                console.error("Failed to load dashboard content", error);
             } finally {
                 setIsLoading(false);
             }
         };
 
-        loadHome();
+        loadContent();
     }, []);
-
-    // Fetch Favorites
-    useEffect(() => {
-        const fetchFavorites = async () => {
-            if (!user) {
-                setFavorites(new Set());
-                return;
-            }
-            const { data, error } = await supabase
-                .from('favorites')
-                .select('vehicle_id')
-                .eq('user_id', user.id);
-
-            if (!error && data) {
-                setFavorites(new Set(data.map((item: any) => item.vehicle_id)));
-            }
-        };
-
-        fetchFavorites();
-    }, [user]);
-
-    const handleToggleFavorite = async (vehicleId: string) => {
-        if (!user) {
-            openLoginModal();
-            return;
-        }
-
-        const newFavorites = new Set(favorites);
-        if (newFavorites.has(vehicleId)) {
-            newFavorites.delete(vehicleId);
-            setFavorites(newFavorites);
-            // Optimistic update done, now persist
-            const { error } = await supabase.from('favorites').delete().match({ user_id: user.id, vehicle_id: vehicleId });
-            if (error) {
-                // Revert if error
-                console.error("Error removing favorite:", error);
-                newFavorites.add(vehicleId);
-                setFavorites(new Set(newFavorites));
-            }
-        } else {
-            newFavorites.add(vehicleId);
-            setFavorites(newFavorites);
-            // Optimistic update done, now persist
-            const { error } = await supabase.from('favorites').insert({ user_id: user.id, vehicle_id: vehicleId });
-            if (error) {
-                // Revert if error
-                console.error("Error adding favorite:", error);
-                newFavorites.delete(vehicleId);
-                setFavorites(new Set(newFavorites));
-            }
-        }
-    };
 
     const runSearch = async (query: string) => {
         if (!query.trim()) {
@@ -277,14 +192,29 @@ export default function VehicleDashboard() {
         setSearchQuery(query);
 
         try {
+            // Note: Ideally backend filters blocked cars, but we can client-filter for now or pass userId
+            // Passing userId to /api/search suggests backend update, but user asked to fix Frontend first.
+            // We will fetch and then filter if we have the hidden sets loaded, 
+            // BUT since this is a fresh fetch, we might re-fetch hidden vars or pass user ID.
+            // For robustness as requested:
             const res = await fetch('/api/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query })
+                body: JSON.stringify({ query, userId: user?.id })
             });
 
             const data = await res.json();
-            setSearchResults(data.cars || []);
+            let results = data.cars || [];
+
+            // Client-side filtering as backup or primary method if API doesn't handle it yet
+            // To do this strictly, we need the hiddenIds available. 
+            // We'll trust the API if it accepts userId (step 3 of request),
+            // OR we'd need to fetch hidden_vehicles again here. 
+            // Given the instruction "Update the /api/search call to pass the userId", we assume backend will handle it.
+            // However, ensuring immediate client filtering is safer if we persist hiddenIds in a Ref or State.
+            // Let's rely on the API call with userId for search results as per prompt Step 3.
+
+            setSearchResults(results);
         } catch (error) {
             console.error('Search error:', error);
             setSearchResults([]);
@@ -293,19 +223,13 @@ export default function VehicleDashboard() {
         }
     };
 
-    // Handle Search (semantic)
-    const handleSearch = async () => {
-        runSearch(searchQuery);
-    };
-
-    const handleSeeAll = (query: string) => {
-        runSearch(query);
-    };
+    const handleSearch = () => runSearch(searchQuery);
+    const handleSeeAll = (query: string) => runSearch(query);
 
     const handleBackToHome = () => {
-        setActiveView('home');
         setSearchQuery('');
         setSearchResults([]);
+        setActiveView('home');
         setIsSearching(false);
     };
 
@@ -313,10 +237,19 @@ export default function VehicleDashboard() {
         if (e.key === 'Enter') handleSearch();
     };
 
+    // 4. The Hide Handler
+    const handleHide = (id: string) => {
+        // Optimistic Update: Remove from all local lists
+        setRecentCars(prev => prev.filter(c => c.id !== id));
+        setCheapCars(prev => prev.filter(c => c.id !== id));
+        setHondaCars(prev => prev.filter(c => c.id !== id));
+        setSearchResults(prev => prev.filter(c => c.id !== id));
+
+        // Data persistence is handled in VehicleCard.tsx
+    };
+
     return (
         <div className="bg-slate-50 min-h-screen font-sans selection:bg-blue-200">
-            {/* Navbar Removed (Moved to Global Layout) */}
-
             {/* Hero */}
             <div className="bg-gradient-to-r from-slate-900 to-slate-800 pt-16 pb-24 sm:pt-24 sm:pb-32 px-4 relative overflow-hidden">
                 <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?ixlib=rb-1.2.1&auto=format&fit=crop&w=1950&q=80')] bg-cover bg-center opacity-20 mix-blend-overlay"></div>
@@ -325,9 +258,7 @@ export default function VehicleDashboard() {
                         Find the real deal.
                     </h1>
                     <div className="relative max-w-2xl mx-auto">
-                        {/* Mobile responsive search bar container */}
                         <div className="flex flex-col md:flex-row items-center bg-white rounded-lg shadow-2xl p-2 focus-within:ring-4 focus-within:ring-blue-500/30 transition-shadow">
-                            {/* Input Area */}
                             <div className="flex items-center w-full">
                                 <Search className="h-5 w-5 text-gray-400 ml-3 shrink-0" />
                                 <input
@@ -365,7 +296,8 @@ export default function VehicleDashboard() {
                             loading={isLoading}
                             onSeeAll={() => handleSeeAll('recent car listings')}
                             favorites={favorites}
-                            onToggleFavorite={handleToggleFavorite}
+                            user={user}
+                            onHide={handleHide}
                         />
                         <CarRow
                             title="Best Deals under $15k"
@@ -373,7 +305,8 @@ export default function VehicleDashboard() {
                             loading={isLoading}
                             onSeeAll={() => handleSeeAll('best deals affordable cars under $15000')}
                             favorites={favorites}
-                            onToggleFavorite={handleToggleFavorite}
+                            user={user}
+                            onHide={handleHide}
                         />
                         <CarRow
                             title="Honda Collection"
@@ -381,7 +314,8 @@ export default function VehicleDashboard() {
                             loading={isLoading}
                             onSeeAll={() => handleSeeAll('Honda cars for sale')}
                             favorites={favorites}
-                            onToggleFavorite={handleToggleFavorite}
+                            user={user}
+                            onHide={handleHide}
                         />
                     </div>
                 )}
@@ -422,8 +356,9 @@ export default function VehicleDashboard() {
                                     <VehicleCard
                                         key={vehicle.id}
                                         vehicle={vehicle}
-                                        isFavorite={favorites.has(vehicle.id)}
-                                        onToggleFavorite={handleToggleFavorite}
+                                        user={user}
+                                        initialIsFavorite={favorites.has(vehicle.id)}
+                                        onHide={handleHide}
                                     />
                                 ))}
                             </div>
