@@ -114,6 +114,7 @@ export default function VehicleDashboard() {
     const [isSearching, setIsSearching] = useState(false);
     const [searchResults, setSearchResults] = useState<Vehicle[]>([]);
     const [activeView, setActiveView] = useState<'home' | 'results'>('home');
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     // 2. The Fetch Logic (useEffect)
     useEffect(() => {
@@ -126,17 +127,29 @@ export default function VehicleDashboard() {
 
                 // Step 2: Parallel Fetch
                 const fetchSection = async (query: string) => {
+                    // Abort after 12s to avoid indefinite skeletons when the API stalls
+                    const controller = new AbortController();
+                    const timeoutId = window.setTimeout(() => controller.abort(), 12000);
                     try {
                         const res = await fetch('/api/search', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ query })
+                            body: JSON.stringify({ query }),
+                            signal: controller.signal,
                         });
+                        if (!res.ok) {
+                            const errorBody = await res.json().catch(() => ({}));
+                            const message = errorBody?.error || 'Search API failed';
+                            throw new Error(message);
+                        }
                         const data = await res.json();
                         return data.cars || [];
                     } catch (error) {
                         console.error('Error fetching section:', error);
+                        setLoadError('Unable to load cars right now. Please try again.');
                         return [];
+                    } finally {
+                        window.clearTimeout(timeoutId);
                     }
                 };
 
@@ -172,6 +185,7 @@ export default function VehicleDashboard() {
 
             } catch (error) {
                 console.error("Failed to load dashboard content", error);
+                setLoadError('Dashboard failed to load. Please refresh.');
             } finally {
                 setIsLoading(false);
             }
@@ -287,6 +301,11 @@ export default function VehicleDashboard() {
 
             {/* Main Content */}
             <div className="max-w-[1400px] mx-auto py-12">
+                {loadError && (
+                    <div className="mx-4 sm:mx-6 lg:mx-8 mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                        {loadError}
+                    </div>
+                )}
                 {/* View: Home */}
                 {activeView === 'home' && (
                     <div className="space-y-4">

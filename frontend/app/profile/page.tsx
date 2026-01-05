@@ -1,42 +1,60 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import CreateInterestForm from '@/components/CreateInterestForm';
 import VehicleCard, { Vehicle } from '@/components/VehicleCard';
-import { User } from '@supabase/supabase-js';
+import { useAuth } from '@/context/AuthContext';
 
 export default function ProfilePage() {
     const router = useRouter();
+    const { user, isLoading: authLoading } = useAuth();
 
     // 1. State Management
-    const [user, setUser] = useState<User | null>(null);
     const [favorites, setFavorites] = useState<Vehicle[]>([]);
     const [interests, setInterests] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [showInterestForm, setShowInterestForm] = useState(false);
-    const [isAuthChecked, setIsAuthChecked] = useState(false); // To prevent premature fetching
+    const [loadError, setLoadError] = useState<string | null>(null);
 
-    // 2. Data Fetching Logic (Standalone)
-    const fetchData = async (userId: string) => {
+    // Keep a stable userId to avoid unnecessary fetch churn
+    const userId = useMemo(() => user?.id ?? null, [user]);
+
+    // 2. Helpers
+    const withTimeout = async <T,>(promise: Promise<T>, label: string, ms = 12000): Promise<T> => {
+        const timeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`${label} timed out`)), ms)
+        );
+        return Promise.race([promise, timeout]);
+    };
+
+    // 3. Data Fetching Logic (Standalone)
+    const fetchData = async (activeUserId: string) => {
         try {
             setLoading(true);
+            setLoadError(null);
 
             // Parallel fetching for speed
             const [favResponse, interestResponse] = await Promise.all([
                 // Fetch Favorites with join
-                supabase
-                    .from('favorites')
-                    .select('vehicle_id, vehicle:staging_vehicles(*)')
-                    .eq('user_id', userId),
+                withTimeout(
+                    supabase
+                        .from('favorites')
+                        .select('vehicle_id, vehicle:staging_vehicles(*)')
+                        .eq('user_id', activeUserId),
+                    'Favorites fetch'
+                ),
 
                 // Fetch Interests
-                supabase
-                    .from('user_interests')
-                    .select('*')
-                    .eq('user_id', userId)
-                    .order('created_at', { ascending: false })
+                withTimeout(
+                    supabase
+                        .from('user_interests')
+                        .select('*')
+                        .eq('user_id', activeUserId)
+                        .order('created_at', { ascending: false }),
+                    'Interests fetch'
+                )
             ]);
 
             // Process Favorites
@@ -58,51 +76,29 @@ export default function ProfilePage() {
 
         } catch (error) {
             console.error('Profile load error:', error);
+            setLoadError('Unable to load your profile right now. Please try again.');
         } finally {
             setLoading(false);
         }
     };
 
-    // 3. Auth Listener (The Fix)
+    // 4. Auth-driven data load
     useEffect(() => {
-        // Check initial session
-        const initSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                setUser(session.user);
-                setIsAuthChecked(true);
-                fetchData(session.user.id);
-            } else {
-                setLoading(false); // Stop loading if no user
-                setIsAuthChecked(true);
-                router.push('/'); // Redirect to home/login
-            }
-        };
+        // Keep a simple guard: if auth still resolving, stay in loading
+        if (authLoading) return;
 
-        initSession();
+        // If user is absent once auth is settled, bail to home and stop spinners
+        if (!userId) {
+            setLoading(false);
+            setFavorites([]);
+            setInterests([]);
+            router.push('/');
+            return;
+        }
 
-        // Listen for changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-            if (session?.user) {
-                setUser(session.user);
-                // Only fetch if we haven't already (or if user changed)
-                // In this simple case, we can just trigger fetch
-                if (!isAuthChecked || user?.id !== session.user.id) {
-                    fetchData(session.user.id);
-                }
-                setIsAuthChecked(true);
-            } else if (event === 'SIGNED_OUT') {
-                setUser(null);
-                setFavorites([]);
-                setInterests([]);
-                setLoading(false);
-                router.push('/');
-            }
-        });
-
-        return () => subscription.unsubscribe();
+        fetchData(userId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [router]);
+    }, [authLoading, userId, router]);
 
 
     // Handlers
@@ -157,9 +153,9 @@ export default function ProfilePage() {
         );
     }
 
-    // If auth checked but still no user, we rendered potential redirect above, generally render nothing or generic
-    if (!user && isAuthChecked) {
-        return null; // or <div />
+    // If auth finished and no user, render nothing (redirect already triggered)
+    if (!user) {
+        return null;
     }
 
     return (
@@ -170,6 +166,11 @@ export default function ProfilePage() {
                 <div className="mb-8">
                     <h1 className="text-4xl font-black text-slate-900 tracking-tight">My Profile</h1>
                     <p className="text-slate-500 mt-2">Manage your saved searches and garage.</p>
+                    {loadError && (
+                        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                            {loadError}
+                        </div>
+                    )}
                 </div>
 
                 {/* Section 1: My Saved Interests */}

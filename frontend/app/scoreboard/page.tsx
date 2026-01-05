@@ -11,22 +11,42 @@ export default function ScoreboardPage() {
     const [scoreboard, setScoreboard] = useState<Record<string, Vehicle[]>>({});
     const [loading, setLoading] = useState(true);
     const [favorites, setFavorites] = useState<Set<string>>(new Set());
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     // Fetch Scoreboard
     const fetchScoreboard = async () => {
         if (!user) return;
         setLoading(true);
+        setLoadError(null);
+
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+
         try {
             const res = await fetch('/api/scoreboard', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: user.id })
+                body: JSON.stringify({ user_id: user.id }),
+                signal: controller.signal,
             });
+
+            if (!res.ok) {
+                const errorBody = await res.json().catch(() => ({}));
+                const message = errorBody?.error || 'Failed to load scoreboard.';
+                throw new Error(message);
+            }
+
             const data = await res.json();
             setScoreboard(data);
-        } catch (error) {
-            console.error('Error fetching scoreboard:', error);
+        } catch (error: any) {
+            if (error?.name === 'AbortError') {
+                setLoadError('Scoreboard request timed out. Please try again.');
+            } else {
+                console.error('Error fetching scoreboard:', error);
+                setLoadError(error?.message || 'Unable to load scoreboard right now.');
+            }
         } finally {
+            window.clearTimeout(timeoutId);
             setLoading(false);
         }
     };
@@ -41,6 +61,7 @@ export default function ScoreboardPage() {
     useEffect(() => {
         if (!authLoading) {
             if (!user) {
+                setLoading(false);
                 router.push('/');
             } else {
                 fetchScoreboard();
@@ -106,6 +127,11 @@ export default function ScoreboardPage() {
                     <div>
                         <h1 className="text-2xl font-black text-slate-900 tracking-tight">My Scoreboard</h1>
                         <p className="text-sm text-gray-500 font-medium">Top picks matched to your criteria</p>
+                        {loadError && (
+                            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                                {loadError}
+                            </div>
+                        )}
                     </div>
                     <button
                         onClick={fetchScoreboard}
