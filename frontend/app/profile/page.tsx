@@ -22,7 +22,8 @@ export default function ProfilePage() {
     const userId = useMemo(() => user?.id ?? null, [user]);
 
     // 2. Helpers
-    const withTimeout = async <T,>(promise: Promise<T>, label: string, ms = 12000): Promise<T> => {
+    // Accept PromiseLike so Supabase query builders are valid inputs
+    const withTimeout = async <T,>(promise: PromiseLike<T>, label: string, ms = 12000): Promise<T> => {
         const timeout = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error(`${label} timed out`)), ms)
         );
